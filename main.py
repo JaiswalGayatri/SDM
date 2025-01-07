@@ -1,4 +1,5 @@
 import ee 
+import os 
 from shapely.wkt import loads
 import pandas as pd
 import numpy as np
@@ -6,6 +7,44 @@ from Modules import presence_dataloader, features_extractor, LULC_filter, pseudo
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 ee.Authenticate()
 ee.Initialize(project='sigma-bay-425614-a6')
+
+def test_model_on_all_ecoregions (clf,Features_extractor,modelss):
+    polygon_dir = 'data/eco_regions_polygon'
+    output_file = 'outputs/malabar_trained_matrix.txt'
+    with open(output_file, 'w') as out_file:
+        out_file.write('Ecoregion,Average_Probability\n')  # Header for the output file
+
+    # Loop through all files in the polygon directory
+    for filename in os.listdir(polygon_dir):
+        if filename.endswith('.wkt'):  # Process only .wkt files
+            ecoregion_name = os.path.splitext(filename)[0]  # Get ecoregion name without extension
+            polygon_path = os.path.join(polygon_dir, filename)
+
+            # Read the polygon WKT
+            with open(polygon_path, 'r') as file:
+                polygon_wkt = file.read().strip()
+
+            # Generate test data for the current ecoregion
+            X_dissimilar = Features_extractor.add_features(
+                utility.divide_polygon_to_grids(polygon_wkt, grid_size=1, points_per_cell=20)
+            )
+            test_presence_path = 'data/test_presence.csv'
+            pd.DataFrame.to_csv(X_dissimilar, test_presence_path)
+            X_test, y_test, _, _, _ = modelss.load_data(
+                presence_path=test_presence_path,
+                absence_path='data/test_absence.csv'
+            )
+
+            # Make predictions
+            y_proba = clf.predict_proba(X_test)[:, 1]
+
+            # Calculate the average probability
+            avg_probability = y_proba.mean()
+
+            # Write the result to the output file
+            out_file.write(f'{ecoregion_name},{avg_probability}\n')
+
+    print(f'Average probabilities saved to {output_file}')
 
 def main():
   
@@ -25,51 +64,51 @@ def main():
     # presence_data_with_features.to_csv('data/presence.csv',index=False,mode='w')
 
     # pseudo_absence_points_with_features = Pseudo_absence.generate_pseudo_absences(presence_data_with_features)
-    print('training model')
-    X,y,_,_,_ = modelss.load_data()
-    clf, X_test, y_test, y_pred, y_proba = modelss.RandomForest(X,y)
-    avg=0
-    for i, prob in enumerate(y_proba):
-        print(f"training test split Sample {i}: {prob:.4f}")
-        avg+=prob 
-    avg /= len(y_proba)
+    # print('training model')
+    # X,y,_,_,_ = modelss.load_data()
+    # clf, X_test, y_test, y_pred, y_proba = modelss.RandomForest(X,y)
+    # avg=0
+    # for i, prob in enumerate(y_proba):
+    #     print(f"training test split Sample {i}: {prob:.4f}")
+    #     avg+=prob 
+    # avg /= len(y_proba)
 
 
-    print('done training with avg prob',avg)
+    # print('done training with avg prob',avg)
     
 
     
-    print('begining predicting on similar region.....')
+    # print('begining predicting on similar region.....')
 
    
 
-    X_test,y_test,_,_,_ = modelss.load_data(presence_path='data/test_presence.csv',absence_path='data/test_absence.csv')
+    # X_test,y_test,_,_,_ = modelss.load_data(presence_path='data/test_presence.csv',absence_path='data/test_absence.csv')
     
-    print('testing data loaded')
+    # print('testing data loaded')
 
-    y_pred = clf.predict(X_test)
-    y_proba = clf.predict_proba(X_test)[:, 1]
-    print('prediction stored')
-    metrics = {
-            'accuracy': accuracy_score(y_test, y_pred),
-            'confusion_matrix': confusion_matrix(y_test, y_pred),
-            'classification_report': classification_report(y_test, y_pred)
-        }
+    # y_pred = clf.predict(X_test)
+    # y_proba = clf.predict_proba(X_test)[:, 1]
+    # print('prediction stored')
+    # metrics = {
+    #         'accuracy': accuracy_score(y_test, y_pred),
+    #         'confusion_matrix': confusion_matrix(y_test, y_pred),
+    #         'classification_report': classification_report(y_test, y_pred)
+    #     }
         
-    # Print the results
+    # # Print the results
 
-    print(f"Accuracy: {metrics['accuracy']:.4f}")
-    print("\nConfusion Matrix:")
-    print(metrics['confusion_matrix'])
-    print("\nClassification Report:")
-    print(metrics['classification_report'])
-    print('done predicting')
-    avg=0
-    for i, prob in enumerate(y_proba):
-        print(f"Sample {i}: {prob:.4f}")
-        avg+=prob 
-    avg/=71
-    print('avg prob is',avg)
+    # print(f"Accuracy: {metrics['accuracy']:.4f}")
+    # print("\nConfusion Matrix:")
+    # print(metrics['confusion_matrix'])
+    # print("\nClassification Report:")
+    # print(metrics['classification_report'])
+    # print('done predicting')
+    # avg=0
+    # for i, prob in enumerate(y_proba):
+    #     print(f"Sample {i}: {prob:.4f}")
+    #     avg+=prob 
+    # avg/=71
+    # print('avg prob is',avg)
 
     # Print feature importances (Coefficients)
    
@@ -124,16 +163,16 @@ def main():
         polygon_wkt1 = file.read().strip()
         # print(polygon_wkt)
     
-    # with open('data/eco_regions_polygon/South_Western_Ghats_moist_deciduous_forests.wkt', 'r') as file:
-    #     polygon_wkt2 = file.read().strip()
+    # # with open('data/eco_regions_polygon/South_Western_Ghats_moist_deciduous_forests.wkt', 'r') as file:
+    # #     polygon_wkt2 = file.read().strip()
 
     X_dissimilar = Features_extractor.add_features(utility.divide_polygon_to_grids(polygon_wkt1,grid_size=1,points_per_cell=20))
     pd.DataFrame.to_csv(X_dissimilar,'data/test_presence.csv')
-    X_test,y_test,_,_,_ = modelss.load_data(presence_path='data/test_presence.csv',absence_path='data/test_absence.csv')
+    # X_test,y_test,_,_,_ = modelss.load_data(presence_path='data/test_presence.csv',absence_path='data/test_absence.csv')
 
-    # print('predicting for a dissimilar reogionnn')
-    y_pred = clf.predict(X_test)
-    y_proba = clf.predict_proba(X_test)[:, 1]
+    # # print('predicting for a dissimilar reogionnn')
+    # y_pred = clf.predict(X_test)
+    # y_proba = clf.predict_proba(X_test)[:, 1]
 
     # print(f"Accuracy_RFC: {accuracy_score(y_test, y_pred):.4f}")
     # print("\nConfusion Matrix:")
@@ -153,7 +192,7 @@ def main():
     # pd.DataFrame.to_csv(X_dissimilar,'data/test_presence.csv',index=False)
 
 
-
+    # test_model_on_all_ecoregions(clf,Features_extractor,modelss)
 
     return 
 
