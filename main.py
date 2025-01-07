@@ -25,7 +25,7 @@ def timeout(time):
 
 def test_model_on_all_ecoregions(clf, Features_extractor, modelss):
     polygon_dir = 'data/eco_regions_polygon'
-    output_file = 'outputs/malabar_trained_matrix.txt'
+    output_file = 'outputs/india_trained_matrix.txt'
 
     # Write the header for the output file
     with open(output_file, 'w') as out_file:
@@ -75,7 +75,7 @@ def test_model_on_all_ecoregions(clf, Features_extractor, modelss):
 
     print(f'Average probabilities saved to {output_file}')
 
-    
+
 def main():
   
     # Presence_dataloader = presence_dataloader.Presence_dataloader()
@@ -96,6 +96,8 @@ def main():
     # pseudo_absence_points_with_features = Pseudo_absence.generate_pseudo_absences(presence_data_with_features)
     print('training model')
     X,y,_,_,_ = modelss.load_data()
+    print(X.shape)
+    # return
     clf, X_test, y_test, y_pred, y_proba = modelss.RandomForest(X,y)
     avg=0
     for i, prob in enumerate(y_proba):
