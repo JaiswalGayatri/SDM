@@ -10,7 +10,7 @@ ee.Initialize(project='sigma-bay-425614-a6')
 def main():
   
     # Presence_dataloader = presence_dataloader.Presence_dataloader()
-    # Features_extractor = features_extractor.Feature_Extractor(ee)
+    Features_extractor = features_extractor.Feature_Extractor(ee)
     # LULC_Filter = LULC_filter.LULC_Filter(ee)
     # Pseudo_absence = pseudo_absence_generator.PseudoAbsences(ee)
     modelss = models.Models()
@@ -120,20 +120,20 @@ def main():
     # Example usage:
     # input_file = "data/eco_region_wise_genus.csv"  # Replace with your cleaned input file path
     # utility.jaccard_similarity(input_file)
-    # with open('data/eco_regions_polygon/Terai_Duar_savanna_and_grasslands.wkt', 'r') as file:
-    #     polygon_wkt1 = file.read().strip()
-    #     # print(polygon_wkt)
+    with open('data/eco_regions_polygon/Terai_Duar_savanna_and_grasslands.wkt', 'r') as file:
+        polygon_wkt1 = file.read().strip()
+        # print(polygon_wkt)
     
     # with open('data/eco_regions_polygon/South_Western_Ghats_moist_deciduous_forests.wkt', 'r') as file:
     #     polygon_wkt2 = file.read().strip()
 
-    # X_dissimilar = Features_extractor.add_features(utility.divide_polygon_to_grids(polygon_wkt1,grid_size=1,points_per_cell=20))
-    # pd.DataFrame.to_csv(X_dissimilar,'data/test_presence.csv')
-    # X_test,y_test,_,_,_ = modelss.load_data(presence_path='data/test_presence.csv',absence_path='data/test_absence.csv')
+    X_dissimilar = Features_extractor.add_features(utility.divide_polygon_to_grids(polygon_wkt1,grid_size=1,points_per_cell=20))
+    pd.DataFrame.to_csv(X_dissimilar,'data/test_presence.csv')
+    X_test,y_test,_,_,_ = modelss.load_data(presence_path='data/test_presence.csv',absence_path='data/test_absence.csv')
 
     # print('predicting for a dissimilar reogionnn')
-    # y_pred = clf.predict(X_test)
-    # y_proba = clf.predict_proba(X_test)[:, 1]
+    y_pred = clf.predict(X_test)
+    y_proba = clf.predict_proba(X_test)[:, 1]
 
     # print(f"Accuracy_RFC: {accuracy_score(y_test, y_pred):.4f}")
     # print("\nConfusion Matrix:")
