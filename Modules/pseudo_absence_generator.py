@@ -45,10 +45,9 @@ class PseudoAbsences:
         india = ee.FeatureCollection('USDOS/LSIB_SIMPLE/2017') \
             .filter(ee.Filter.eq('country_co', 'IN'))
         
-        ecoregion_geom = malabar_ecoregion = ecoregions \
-            .filterBounds(india) \
-            .filter(ee.Filter.eq('ECO_NAME', 'Malabar Coast moist forests')) \
-            .first()
+        ecoregion_geom = malabar_ecoregion = ee.FeatureCollection('USDOS/LSIB_SIMPLE/2017') \
+                            .filter(ee.Filter.eq('country_co', 'IN')) \
+                            .first()
         self.ecoregion_geom = ecoregion_geom.geometry()
 
 

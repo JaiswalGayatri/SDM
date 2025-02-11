@@ -47,7 +47,7 @@ class LULC_Filter:
             lon, lat = row['longitude'], row['latitude']
             point = ee.Geometry.Point([lon, lat])
             features.append(ee.Feature(point).set({'longitude': lon, 'latitude': lat}))
-
+        # print(len(features),'this to be done')
         fc = ee.FeatureCollection(features)
         filtered_fc = fc.map(lambda feature: self.filter_point_by_lulc(feature)) \
                         .filter(ee.Filter.eq('lulc_label', 1))

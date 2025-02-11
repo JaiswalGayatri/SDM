@@ -25,7 +25,7 @@ def timeout(time):
 
 def test_model_on_all_ecoregions(clf, Features_extractor, modelss):
     polygon_dir = 'data/eco_regions_polygon'
-    output_file = 'outputs/india_trained_matrix.txt'
+    output_file = 'outputs/malabar_trained_matrix_Tectona.txt'
 
     # Write the header for the output file
     with open(output_file, 'w') as out_file:
@@ -78,26 +78,27 @@ def test_model_on_all_ecoregions(clf, Features_extractor, modelss):
 
 def main():
   
-    # Presence_dataloader = presence_dataloader.Presence_dataloader()
+    Presence_dataloader = presence_dataloader.Presence_dataloader()
     Features_extractor = features_extractor.Feature_Extractor(ee)
-    # LULC_Filter = LULC_filter.LULC_Filter(ee)
-    # Pseudo_absence = pseudo_absence_generator.PseudoAbsences(ee)
+    LULC_Filter = LULC_filter.LULC_Filter(ee)
+    Pseudo_absence = pseudo_absence_generator.PseudoAbsences(ee)
     modelss = models.Models()
     # generate_prob = Generate_Prob.Generate_Prob(ee)
     
     
-    # # raw_occurrences = Presence_dataloader.load_raw_presence_data()   #uncomment if want to use gbif api to generate presence points
+    # raw_occurrences = Presence_dataloader.load_raw_presence_data()   #uncomment if want to use gbif api to generate presence points
     
     # unique_presences = Presence_dataloader.load_unique_lon_lats()
     # presences_filtered_LULC = LULC_Filter.filter_by_lulc(unique_presences)
+    # print(len(presences_filtered_LULC))
     # presence_data_with_features  = Features_extractor.add_features(presences_filtered_LULC)
     # presence_data_with_features.to_csv('data/presence.csv',index=False,mode='w')
-
+    # presence_data_with_features = pd.read_csv('data/presence.csv')
     # pseudo_absence_points_with_features = Pseudo_absence.generate_pseudo_absences(presence_data_with_features)
     print('training model')
     X,y,_,_,_ = modelss.load_data()
-    print(X.shape)
-    # return
+    # print(X.shape)
+    # # return
     clf, X_test, y_test, y_pred, y_proba = modelss.RandomForest(X,y)
     avg=0
     for i, prob in enumerate(y_proba):
@@ -223,7 +224,7 @@ def main():
     # # print(X_similar)
     # pd.DataFrame.to_csv(X_dissimilar,'data/test_presence.csv',index=False)
 
-
+# 
     test_model_on_all_ecoregions(clf,Features_extractor,modelss)
 
     return 
