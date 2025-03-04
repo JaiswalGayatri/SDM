@@ -229,11 +229,87 @@ def main():
 
     return 
 
+
+import os
+import geopandas as gpd
+import pandas as pd
+from shapely import wkt, Point
+
+# Path to folder containing WKT polygon files
+ecoregion_folder = "data/eco_regions_polygon"
+
+# Load species occurrence data (CSV with latitude & longitude)
+species_df = pd.read_csv("data/Tectona_india_f.csv")
+
+# Convert species points into a GeoDataFrame
+species_df["geometry"] = species_df.apply(lambda row: Point(row["longitude"], row["latitude"]), axis=1)
+species_gdf = gpd.GeoDataFrame(species_df, geometry="geometry", crs="EPSG:4326")
+
+# Function to load ecoregion polygons from WKT files
+def load_ecoregions(folder):
+    ecoregions = []
+    for file in os.listdir(folder):
+        if file.endswith(".wkt"):  # Assuming WKT files
+            with open(os.path.join(folder, file), "r") as f:
+                wkt_text = f.read().strip()
+                poly = wkt.loads(wkt_text)
+                ecoregions.append({"ecoregion": file.replace(".wkt", ""), "geometry": poly})
+    return gpd.GeoDataFrame(ecoregions, geometry="geometry", crs="EPSG:4326")
+
+# Load all ecoregions into a GeoDataFrame
+ecoregion_gdf = load_ecoregions(ecoregion_folder)
+
+# Spatial join: Assign each species occurrence to an ecoregion
+species_with_ecoregions = gpd.sjoin(species_gdf, ecoregion_gdf, how="left", predicate="within")
+
+# Count occurrences in each ecoregion
+ecoregion_counts = species_with_ecoregions.groupby("ecoregion").size().reset_index(name="count")
+
+# Save results
+ecoregion_counts.to_csv("outputs/species_ecoregion_counts.csv", index=False)
+
+print(ecoregion_counts)  # Print output
+
+def compute_concentration_index(csv_file):
+    """
+    Computes the concentration index (Ci) for a species based on its occurrence distribution across ecoregions.
+
+    Args:
+        csv_file (str): Path to the CSV file containing species occurrence counts per ecoregion.
+
+    Returns:
+        float: The concentration index (Ci).
+    """
+    # Load species occurrence counts
+    df = pd.read_csv(csv_file)
+
+    # Ensure the CSV has correct columns
+    if "count" not in df.columns:
+        raise ValueError("CSV file must contain a 'count' column with species occurrences.")
+
+    # Total occurrences of the species
+    total_occurrences = df["count"].sum()
+
+    # Compute probability pij for each ecoregion
+    df["pij"] = df["count"] / total_occurrences
+
+    # Compute concentration index (Ci)
+    df["pij_log_pij"] = df["pij"] * np.log(df["pij"])
+    Ci = -df["pij_log_pij"].sum()
+
+    return Ci
+
+# Example usage
+csv_file = "outputs/species_ecoregion_counts.csv"
+Ci = compute_concentration_index(csv_file)
+print(f"Concentration Index (Ci): {Ci:.4f}")
+
+
     
    
 
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
 
