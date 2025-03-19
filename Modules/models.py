@@ -88,11 +88,11 @@ class Models:
         y_pred = clf.predict(X_test)
         y_proba = clf.predict_proba(X_test)[:, 1]
 
-        print(f"Accuracy_RFC: {accuracy_score(y_test, y_pred):.4f}")
-        print("\nConfusion Matrix:")
-        print(confusion_matrix(y_test, y_pred))
-        print("\nClassification Report:")
-        print(classification_report(y_test, y_pred))
+        # print(f"Accuracy_RFC: {accuracy_score(y_test, y_pred):.4f}")
+        # print("\nConfusion Matrix:")
+        # print(confusion_matrix(y_test, y_pred))
+        # print("\nClassification Report:")
+        # print(classification_report(y_test, y_pred))
 
         # Print probabilities for the test set
         # print("\nProbabilities on the test set:")
@@ -126,52 +126,47 @@ class Models:
         y_pred = clf.predict(X_test)
         y_proba = clf.predict_proba(X_test)[:, 1]
 
-        print(f"Accuracy_logistic: {accuracy_score(y_test, y_pred):.4f}")
-        print("\nConfusion Matrix:")
-        print(confusion_matrix(y_test, y_pred))
-        print("\nClassification Report:")
-        print(classification_report(y_test, y_pred))
+        # print(f"Accuracy_logistic: {accuracy_score(y_test, y_pred):.4f}")
+        # print("\nConfusion Matrix:")
+        # print(confusion_matrix(y_test, y_pred))
+        # print("\nClassification Report:")
+        # print(classification_report(y_test, y_pred))
 
-        print("\nFeature Importances (Coefficients):")
-        for coef, feature in sorted(zip(clf.coef_[0], feature_cols), key=lambda x: abs(x[0]), reverse=True):
-            print(f"{feature}: {coef:.4f}")
+        # print("\nFeature Importances (Coefficients):")
+        # for coef, feature in sorted(zip(clf.coef_[0], feature_cols), key=lambda x: abs(x[0]), reverse=True):
+        #     print(f"{feature}: {coef:.4f}")
 
         return clf, X_test, y_test, y_pred, y_proba
     
-    def train_and_evaluate_model_logistic_weighted(X, y, sample_weights=None):
-    
+    def train_and_evaluate_model_logistic_weighted(self,X, y, sample_weights=None):
+        # First, ensure X is a numeric array
+        # You might need to add debug statements to check what X contains
+        print(f"Type of X: {type(X)}")
+        print(f"Shape of X: {X.shape if hasattr(X, 'shape') else 'no shape'}")
+        
+        # If sample_weights is None, create an array of ones with the same length as y
+        if sample_weights is None:
+            sample_weights = np.ones(len(y))
+        
+        # Initialize the imputer
         imputer = SimpleImputer(strategy="mean")
+        
+        # Transform X
         X = imputer.fit_transform(X)
-
+        
         # Split the data
         X_train, X_test, y_train, y_test, weights_train, weights_test = train_test_split(
             X, y, sample_weights, test_size=0.2, random_state=42, stratify=y
         )
-
+        
         # Train model with Logistic Regression and L2 regularization
         clf = LogisticRegression(C=1.0, penalty='l2', solver='liblinear', random_state=42)
         clf.fit(X_train, y_train, sample_weight=weights_train)
-
+        
         # Evaluate model
         y_pred = clf.predict(X_test)
         y_proba = clf.predict_proba(X_test)[:, 1]
-
-        print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")
-        print("\nConfusion Matrix:")
-        print(confusion_matrix(y_test, y_pred))
-        print("\nClassification Report:")
-        print(classification_report(y_test, y_pred))
-
-        # Print probabilities for the test set
-        # print("\nProbabilities on the test set:")
-        # for i, prob in enumerate(y_proba):
-        #     print(f"Sample {i}: {prob:.4f}")
-
-        # Print feature importances (Coefficients)
-        print("\nFeature Importances (Coefficients):")
-        for coef, feature in sorted(zip(clf.coef_[0], feature_cols), key=lambda x: abs(x[0]), reverse=True):
-            print(f"{feature}: {coef:.4f}")
-
+        
         return clf, X_test, y_test, y_pred, y_proba
     
 

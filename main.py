@@ -7,6 +7,7 @@ import signal
 from contextlib import contextmanager
 from Modules import presence_dataloader, features_extractor, LULC_filter, pseudo_absence_generator, models, Generate_Prob, utility
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from scipy.stats import spearmanr
 ee.Authenticate()
 ee.Initialize(project='sigma-bay-425614-a6')
 
@@ -23,9 +24,9 @@ def timeout(time):
     finally:
         signal.alarm(0)
 
-def test_model_on_all_ecoregions(clf, Features_extractor, modelss):
+def test_model_on_all_ecoregions(clf, Features_extractor, modelss,output_file='data/avg_prob.txt'):
     polygon_dir = 'data/eco_regions_polygon'
-    output_file = 'outputs/malabar_trained_matrix_Tectona.txt'
+    # output_file = 'outputs/testing_SDM_out/all_india_trained_matrix_Dalbergia_avg_prob.txt'
 
     # Write the header for the output file
     with open(output_file, 'w') as out_file:
@@ -95,23 +96,80 @@ def main():
     # presence_data_with_features.to_csv('data/presence.csv',index=False,mode='w')
     # presence_data_with_features = pd.read_csv('data/presence.csv')
     # pseudo_absence_points_with_features = Pseudo_absence.generate_pseudo_absences(presence_data_with_features)
-    print('training model')
-    X,y,_,_,_ = modelss.load_data()
+    print('training model_random forest')
+    X,y,_,_,_ = modelss.load_data('data/testing_SDM/presence_points_Dalbergia_all_india.csv','data/testing_SDM/absence_points_dalbergia_all_india.csv')
     # print(X.shape)
     # # return
     clf, X_test, y_test, y_pred, y_proba = modelss.RandomForest(X,y)
     avg=0
-    for i, prob in enumerate(y_proba):
-        print(f"training test split Sample {i}: {prob:.4f}")
-        avg+=prob 
-    avg /= len(y_proba)
+    metrics = {
+            'accuracy': accuracy_score(y_test, y_pred),
+            'confusion_matrix': confusion_matrix(y_test, y_pred),
+            'classification_report': classification_report(y_test, y_pred)
+        }
+        
+    # # Print the results
+
+    print(f"Accuracy: {metrics['accuracy']:.4f}")
+    print("\nConfusion Matrix:")
+    print(metrics['confusion_matrix'])
+    print("\nClassification Report:")
+    print(metrics['classification_report'])
+    print('done predicting')
+
+    print('##############################')
+    # print('training model_ logistic regression')
+    # X,y,_,_,_ = modelss.load_data('data/testing_SDM/presence_points_Dalbergia_all_india.csv','data/testing_SDM/absence_points_dalbergia_all_india.csv')
+    # # print(X.shape)
+    # # # return
+    # clf, X_test, y_test, y_pred, y_proba = modelss.logistic_regression_L2(X,y)
+    # avg=0
+    # metrics = {
+    #         'accuracy': accuracy_score(y_test, y_pred),
+    #         'confusion_matrix': confusion_matrix(y_test, y_pred),
+    #         'classification_report': classification_report(y_test, y_pred)
+    #     }
+        
+    # # # Print the results
+
+    # print(f"Accuracy: {metrics['accuracy']:.4f}")
+    # print("\nConfusion Matrix:")
+    # print(metrics['confusion_matrix'])
+    # print("\nClassification Report:")
+    # print(metrics['classification_report'])
+    # print('done predicting')
+
+    # print('##############################')
+    # print('training model weighted logistic regression')
+    # X,y,_,_,_ = modelss.load_data('data/testing_SDM/presence_points_Dalbergia_all_india.csv','data/testing_SDM/absence_points_dalbergia_all_india.csv')
+    # # print(X.shape)
+    # # # return
+    # clf, X_test, y_test, y_pred, y_proba = modelss.train_and_evaluate_model_logistic_weighted(X,y)
+    # avg=0
+    # metrics = {
+    #         'accuracy': accuracy_score(y_test, y_pred),
+    #         'confusion_matrix': confusion_matrix(y_test, y_pred),
+    #         'classification_report': classification_report(y_test, y_pred)
+    #     }
+        
+    # # # Print the results
+
+    # print(f"Accuracy: {metrics['accuracy']:.4f}")
+    # print("\nConfusion Matrix:")
+    # print(metrics['confusion_matrix'])
+    # print("\nClassification Report:")
+    # print(metrics['classification_report'])
+    # print('done predicting')
+
+    # print('##############################')
 
 
-    print('done training with avg prob',avg)
+
+   
     
 
     
-    print('begining predicting on all region.....')
+  
 
    
 
@@ -122,20 +180,7 @@ def main():
     # y_pred = clf.predict(X_test)
     # y_proba = clf.predict_proba(X_test)[:, 1]
     # print('prediction stored')
-    # metrics = {
-    #         'accuracy': accuracy_score(y_test, y_pred),
-    #         'confusion_matrix': confusion_matrix(y_test, y_pred),
-    #         'classification_report': classification_report(y_test, y_pred)
-    #     }
-        
-    # # Print the results
-
-    # print(f"Accuracy: {metrics['accuracy']:.4f}")
-    # print("\nConfusion Matrix:")
-    # print(metrics['confusion_matrix'])
-    # print("\nClassification Report:")
-    # print(metrics['classification_report'])
-    # print('done predicting')
+    
     # avg=0
     # for i, prob in enumerate(y_proba):
     #     print(f"Sample {i}: {prob:.4f}")
@@ -225,84 +270,87 @@ def main():
     # pd.DataFrame.to_csv(X_dissimilar,'data/test_presence.csv',index=False)
 
 # 
-    test_model_on_all_ecoregions(clf,Features_extractor,modelss)
-
-    return 
+    test_model_on_all_ecoregions(clf,Features_extractor,modelss,output_file = 'outputs/testing_SDM_out/all_india_trained_matrix_Dalbergia_avg_prob_random_forest.txt')
 
 
-import os
-import geopandas as gpd
-import pandas as pd
-from shapely import wkt, Point
 
-# Path to folder containing WKT polygon files
-ecoregion_folder = "data/eco_regions_polygon"
+    
 
-# Load species occurrence data (CSV with latitude & longitude)
-species_df = pd.read_csv("data/Tectona_india_f.csv")
 
-# Convert species points into a GeoDataFrame
-species_df["geometry"] = species_df.apply(lambda row: Point(row["longitude"], row["latitude"]), axis=1)
-species_gdf = gpd.GeoDataFrame(species_df, geometry="geometry", crs="EPSG:4326")
+    # import os
+    # import geopandas as gpd
+    # import pandas as pd
+    # from shapely import wkt, Point
+    # print('finding species count in each ecoregion')
+    # # Path to folder containing WKT polygon files
+    # ecoregion_folder = "data/eco_regions_polygon"
 
-# Function to load ecoregion polygons from WKT files
-def load_ecoregions(folder):
-    ecoregions = []
-    for file in os.listdir(folder):
-        if file.endswith(".wkt"):  # Assuming WKT files
-            with open(os.path.join(folder, file), "r") as f:
-                wkt_text = f.read().strip()
-                poly = wkt.loads(wkt_text)
-                ecoregions.append({"ecoregion": file.replace(".wkt", ""), "geometry": poly})
-    return gpd.GeoDataFrame(ecoregions, geometry="geometry", crs="EPSG:4326")
+    # # Load species occurrence data (CSV with latitude & longitude)
+    # species_df = pd.read_csv("data/testing_SDM/presence_points_erythinia_all_india.csv")
 
-# Load all ecoregions into a GeoDataFrame
-ecoregion_gdf = load_ecoregions(ecoregion_folder)
+    # # Convert species points into a GeoDataFrame
+    # species_df["geometry"] = species_df.apply(lambda row: Point(row["longitude"], row["latitude"]), axis=1)
+    # species_gdf = gpd.GeoDataFrame(species_df, geometry="geometry", crs="EPSG:4326")
 
-# Spatial join: Assign each species occurrence to an ecoregion
-species_with_ecoregions = gpd.sjoin(species_gdf, ecoregion_gdf, how="left", predicate="within")
+    # # Function to load ecoregion polygons from WKT files
+    # def load_ecoregions(folder):
+    #     ecoregions = []
+    #     for file in os.listdir(folder):
+    #         if file.endswith(".wkt"):  # Assuming WKT files
+    #             with open(os.path.join(folder, file), "r") as f:
+    #                 wkt_text = f.read().strip()
+    #                 poly = wkt.loads(wkt_text)
+    #                 ecoregions.append({"ecoregion": file.replace(".wkt", ""), "geometry": poly})
+    #     return gpd.GeoDataFrame(ecoregions, geometry="geometry", crs="EPSG:4326")
 
-# Count occurrences in each ecoregion
-ecoregion_counts = species_with_ecoregions.groupby("ecoregion").size().reset_index(name="count")
+    # # Load all ecoregions into a GeoDataFrame
+    # ecoregion_gdf = load_ecoregions(ecoregion_folder)
 
-# Save results
-ecoregion_counts.to_csv("outputs/species_ecoregion_counts.csv", index=False)
+    # # Spatial join: Assign each species occurrence to an ecoregion
+    # species_with_ecoregions = gpd.sjoin(species_gdf, ecoregion_gdf, how="left", predicate="within")
 
-print(ecoregion_counts)  # Print output
+    # # Count occurrences in each ecoregion
+    # ecoregion_counts = species_with_ecoregions.groupby("ecoregion").size().reset_index(name="count")
 
-def compute_concentration_index(csv_file):
-    """
-    Computes the concentration index (Ci) for a species based on its occurrence distribution across ecoregions.
+    # # Save results
+    # ecoregion_counts.to_csv("outputs/testing_SDM_out/species_ecoregion_counts_erythinia.csv", index=False)
+    # print('done')
 
-    Args:
-        csv_file (str): Path to the CSV file containing species occurrence counts per ecoregion.
+# print(ecoregion_counts)  # Print output
 
-    Returns:
-        float: The concentration index (Ci).
-    """
-    # Load species occurrence counts
-    df = pd.read_csv(csv_file)
+# def compute_concentration_index(csv_file):
+#     """
+#     Computes the concentration index (Ci) for a species based on its occurrence distribution across ecoregions.
 
-    # Ensure the CSV has correct columns
-    if "count" not in df.columns:
-        raise ValueError("CSV file must contain a 'count' column with species occurrences.")
+#     Args:
+#         csv_file (str): Path to the CSV file containing species occurrence counts per ecoregion.
 
-    # Total occurrences of the species
-    total_occurrences = df["count"].sum()
+#     Returns:
+#         float: The concentration index (Ci).
+#     """
+#     # Load species occurrence counts
+#     df = pd.read_csv(csv_file)
 
-    # Compute probability pij for each ecoregion
-    df["pij"] = df["count"] / total_occurrences
+#     # Ensure the CSV has correct columns
+#     if "count" not in df.columns:
+#         raise ValueError("CSV file must contain a 'count' column with species occurrences.")
 
-    # Compute concentration index (Ci)
-    df["pij_log_pij"] = df["pij"] * np.log(df["pij"])
-    Ci = -df["pij_log_pij"].sum()
+#     # Total occurrences of the species
+#     total_occurrences = df["count"].sum()
 
-    return Ci
+#     # Compute probability pij for each ecoregion
+#     df["pij"] = df["count"] / total_occurrences
 
-# Example usage
-csv_file = "outputs/species_ecoregion_counts.csv"
-Ci = compute_concentration_index(csv_file)
-print(f"Concentration Index (Ci): {Ci:.4f}")
+#     # Compute concentration index (Ci)
+#     df["pij_log_pij"] = df["pij"] * np.log(df["pij"])
+#     Ci = -df["pij_log_pij"].sum()
+
+#     return Ci
+
+# # Example usage
+# csv_file = "outputs/species_ecoregion_counts.csv"
+# Ci = compute_concentration_index(csv_file)
+# print(f"Concentration Index (Ci): {Ci:.4f}")
 
 
     
@@ -310,6 +358,6 @@ print(f"Concentration Index (Ci): {Ci:.4f}")
 
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()
 
