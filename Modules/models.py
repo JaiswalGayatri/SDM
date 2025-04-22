@@ -3,12 +3,13 @@ import pandas as pd
 from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, recall_score
 from sklearn.linear_model import LogisticRegression
 import geopandas as gpd
 from shapely.geometry import Point
 from shapely import wkt
 import os
+from .custom_losses import CustomNeuralNetwork, FocalLoss, DiceLoss, TverskyLoss, TverskyScorer, FocalScorer, DiceScorer, optimize_threshold_for_tpr
 
 feature_cols = [
     'annual_mean_temperature', 'mean_diurnal_range', 'isothermality',
@@ -188,25 +189,34 @@ class Models:
         return clf, X_test, y_test, y_pred, y_proba
 
     def train_and_evaluate_model_logistic_weighted(self, X, y, sample_weights=None):
+        # Convert to numpy arrays and handle NaN values
         X = np.array(X, dtype=float)
-        mask = np.isfinite(X).all(axis=1)
-        X, y = X[mask], y[mask]
+        y = np.array(y, dtype=float)
+        
+        # Remove rows with NaN values
+        mask = ~np.isnan(X).any(axis=1)
+        X = X[mask]
+        y = y[mask]
         if sample_weights is not None:
             sample_weights = np.array(sample_weights, dtype=float)
             sample_weights = sample_weights[mask]
-        else:
-            sample_weights = np.ones(len(y))
+        
+        # Split data
         X_train, X_test, y_train, y_test, weights_train, weights_test = train_test_split(
             X, y, sample_weights, test_size=0.2, random_state=42, stratify=y
         )
-        train_mask = np.isfinite(X_train).all(axis=1)
-        test_mask = np.isfinite(X_test).all(axis=1)
-        X_train, y_train, weights_train = X_train[train_mask], y_train[train_mask], weights_train[train_mask]
-        X_test, y_test, weights_test = X_test[test_mask], y_test[test_mask], weights_test[test_mask]
+        
+        # Train model
         clf = LogisticRegression(C=1.0, penalty='l2', solver='liblinear', random_state=42)
-        clf.fit(X_train, y_train, sample_weight=weights_train)
+        if weights_train is not None:
+            clf.fit(X_train, y_train, sample_weight=weights_train)
+        else:
+            clf.fit(X_train, y_train)
+        
+        # Get predictions and probabilities
         y_pred = clf.predict(X_test)
         y_proba = clf.predict_proba(X_test)[:, 1]
+        
         return clf, X_test, y_test, y_pred, y_proba
 
     def evaluate_model(self, clf: RandomForestClassifier, X_test, y_test, sample_weights=None, dataset_name='Test'):
@@ -228,3 +238,284 @@ class Models:
         print("\nClassification Report:")
         print(metrics['classification_report'])
         return metrics
+
+    def train_with_focal_loss(self, X, y, sample_weights=None, alpha=0.25, gamma=2.0):
+        """Train a model using focal loss to improve handling of class imbalance"""
+        nn_model = CustomNeuralNetwork(loss_fn='focal', alpha=alpha, gamma=gamma)
+        nn_model.fit(X, y, sample_weights=sample_weights)
+        return nn_model
+
+    def train_with_dice_loss(self, X, y, sample_weights=None, smooth=1.0):
+        """Train a model using dice loss to focus on true positives"""
+        nn_model = CustomNeuralNetwork(loss_fn='dice', smooth=smooth)
+        nn_model.fit(X, y, sample_weights=sample_weights)
+        return nn_model
+
+    def train_with_tversky_loss(self, X, y, sample_weights=None, alpha=0.3, beta=0.7, smooth=1.0):
+        """
+        Train a model using Tversky loss to handle class imbalance with explicit control
+        over false positives and false negatives.
+        
+        Parameters:
+        -----------
+        X: features
+        y: labels
+        sample_weights: optional sample weights
+        alpha: penalty for false positives (default 0.3)
+        beta: penalty for false negatives (default 0.7)
+        smooth: smoothing factor (default 1.0)
+        """
+        nn_model = CustomNeuralNetwork(
+            loss_fn='tversky',
+            alpha=alpha,
+            beta=beta,
+            smooth=smooth
+        )
+        nn_model.fit(X, y, sample_weights=sample_weights)
+        return nn_model
+
+    def optimize_for_tpr(self, X, y, sample_weights=None, threshold_range=(0.1, 0.9), steps=20):
+        """Optimize decision threshold to maximize true positive rate while maintaining reasonable accuracy"""
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y
+        )
+        
+        # Train model
+        clf = RandomForestClassifier(n_estimators=100, random_state=42)
+        if sample_weights is not None:
+            clf.fit(X_train, y_train, sample_weight=sample_weights)
+        else:
+            clf.fit(X_train, y_train)
+        
+        # Get probabilities
+        y_proba = clf.predict_proba(X_test)[:, 1]
+        
+        # Find optimal threshold
+        best_threshold = 0.5
+        best_tpr = 0
+        best_accuracy = 0
+        
+        for threshold in np.linspace(threshold_range[0], threshold_range[1], steps):
+            y_pred = (y_proba >= threshold).astype(int)
+            tpr = recall_score(y_test, y_pred)
+            accuracy = accuracy_score(y_test, y_pred)
+            
+            # We want to maximize TPR while keeping accuracy above 0.5
+            if tpr > best_tpr and accuracy > 0.5:
+                best_tpr = tpr
+                best_threshold = threshold
+                best_accuracy = accuracy
+        
+        # Set the optimal threshold
+        self.optimal_threshold = best_threshold
+        
+        # Return model and metrics
+        metrics = {
+            'optimal_threshold': best_threshold,
+            'true_positive_rate': best_tpr,
+            'accuracy': best_accuracy
+        }
+        
+        return clf, metrics
+
+    def evaluate_model_with_tpr(self, clf, X_test, y_test, sample_weights=None, dataset_name='Test'):
+        """Evaluate model with focus on true positive rate and true negative rate"""
+        try:
+            y_proba = clf.predict_proba(X_test)[:, 1]
+            
+            # Use optimal threshold if available
+            if hasattr(self, 'optimal_threshold'):
+                y_pred = (y_proba >= self.optimal_threshold).astype(int)
+            else:
+                y_pred = clf.predict(X_test)
+            
+            # Calculate confusion matrix
+            tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+            
+            # Calculate metrics
+            accuracy = accuracy_score(y_test, y_pred)
+            tpr = tp / (tp + fn)  # True Positive Rate
+            tnr = tn / (tn + fp)  # True Negative Rate
+            
+            metrics = {
+                'accuracy': accuracy,
+                'true_positive_rate': tpr,
+                'true_negative_rate': tnr,
+                'confusion_matrix': confusion_matrix(y_test, y_pred),
+                'classification_report': classification_report(y_test, y_pred)
+            }
+            
+            print(f"\n{dataset_name} Set Evaluation:")
+            print(f"Accuracy: {metrics['accuracy']:.4f}")
+            print(f"True Positive Rate: {metrics['true_positive_rate']:.4f}")
+            print(f"True Negative Rate: {metrics['true_negative_rate']:.4f}")
+            print("\nConfusion Matrix:")
+            print(metrics['confusion_matrix'])
+            print("\nClassification Report:")
+            print(metrics['classification_report'])
+            
+            return metrics
+            
+        except Exception as e:
+            print(f"Error during evaluation: {e}")
+            return None
+
+    def train_with_tversky_scoring(self, X, y, sample_weights=None, alpha=0.3, beta=0.7, model_type='rf'):
+        """
+        Train model with Tversky scoring to optimize for TPR
+        model_type: 'rf' for Random Forest, 'logistic' for Logistic Regression
+        """
+        # Convert to numpy arrays and handle NaN values
+        X = np.array(X, dtype=float)
+        y = np.array(y, dtype=float)
+        
+        # Remove rows with NaN values
+        mask = ~np.isnan(X).any(axis=1)
+        X = X[mask]
+        y = y[mask]
+        if sample_weights is not None:
+            sample_weights = np.array(sample_weights, dtype=float)
+            sample_weights = sample_weights[mask]
+        
+        # Split data
+        X_train, X_test, y_train, y_test, weights_train, weights_test = train_test_split(
+            X, y, sample_weights, test_size=0.2, random_state=42, stratify=y
+        )
+        
+        # Train model
+        if model_type == 'rf':
+            clf = RandomForestClassifier(n_estimators=100, random_state=42)
+        else:
+            clf = LogisticRegression(C=1.0, penalty='l2', solver='liblinear', random_state=42)
+            
+        if weights_train is not None:
+            clf.fit(X_train, y_train, sample_weight=weights_train)
+        else:
+            clf.fit(X_train, y_train)
+        
+        # Get probabilities
+        y_proba = clf.predict_proba(X_test)[:, 1]
+        
+        # Optimize threshold using Tversky scorer
+        tversky_scorer = TverskyScorer(alpha=alpha, beta=beta)
+        thresholds = np.linspace(0.1, 0.9, 20)
+        best_threshold = 0.5
+        best_score = 0
+        
+        for threshold in thresholds:
+            score = tversky_scorer(y_test, y_proba, threshold)
+            if score > best_score:
+                best_score = score
+                best_threshold = threshold
+        
+        # Store optimal threshold
+        self.optimal_threshold = best_threshold
+        
+        return clf
+
+    def train_with_focal_scoring(self, X, y, sample_weights=None, alpha=0.25, gamma=2.0, model_type='rf'):
+        """
+        Train model with Focal scoring to handle class imbalance
+        model_type: 'rf' for Random Forest, 'logistic' for Logistic Regression
+        """
+        # Convert to numpy arrays and handle NaN values
+        X = np.array(X, dtype=float)
+        y = np.array(y, dtype=float)
+        
+        # Remove rows with NaN values
+        mask = ~np.isnan(X).any(axis=1)
+        X = X[mask]
+        y = y[mask]
+        if sample_weights is not None:
+            sample_weights = np.array(sample_weights, dtype=float)
+            sample_weights = sample_weights[mask]
+        
+        # Split data
+        X_train, X_test, y_train, y_test, weights_train, weights_test = train_test_split(
+            X, y, sample_weights, test_size=0.2, random_state=42, stratify=y
+        )
+        
+        # Train model
+        if model_type == 'rf':
+            clf = RandomForestClassifier(n_estimators=100, random_state=42)
+        else:
+            clf = LogisticRegression(C=1.0, penalty='l2', solver='liblinear', random_state=42)
+            
+        if weights_train is not None:
+            clf.fit(X_train, y_train, sample_weight=weights_train)
+        else:
+            clf.fit(X_train, y_train)
+        
+        # Get probabilities
+        y_proba = clf.predict_proba(X_test)[:, 1]
+        
+        # Optimize threshold using Focal scorer
+        focal_scorer = FocalScorer(alpha=alpha, gamma=gamma)
+        thresholds = np.linspace(0.1, 0.9, 20)
+        best_threshold = 0.5
+        best_score = 0
+        
+        for threshold in thresholds:
+            score = focal_scorer(y_test, y_proba, threshold)
+            if score > best_score:
+                best_score = score
+                best_threshold = threshold
+        
+        # Store optimal threshold
+        self.optimal_threshold = best_threshold
+        
+        return clf
+
+    def train_with_dice_scoring(self, X, y, sample_weights=None, smooth=1.0, model_type='rf'):
+        """
+        Train model with Dice scoring to optimize overlap
+        model_type: 'rf' for Random Forest, 'logistic' for Logistic Regression
+        """
+        # Convert to numpy arrays and handle NaN values
+        X = np.array(X, dtype=float)
+        y = np.array(y, dtype=float)
+        
+        # Remove rows with NaN values
+        mask = ~np.isnan(X).any(axis=1)
+        X = X[mask]
+        y = y[mask]
+        if sample_weights is not None:
+            sample_weights = np.array(sample_weights, dtype=float)
+            sample_weights = sample_weights[mask]
+        
+        # Split data
+        X_train, X_test, y_train, y_test, weights_train, weights_test = train_test_split(
+            X, y, sample_weights, test_size=0.2, random_state=42, stratify=y
+        )
+        
+        # Train model
+        if model_type == 'rf':
+            clf = RandomForestClassifier(n_estimators=100, random_state=42)
+        else:
+            clf = LogisticRegression(C=1.0, penalty='l2', solver='liblinear', random_state=42)
+            
+        if weights_train is not None:
+            clf.fit(X_train, y_train, sample_weight=weights_train)
+        else:
+            clf.fit(X_train, y_train)
+        
+        # Get probabilities
+        y_proba = clf.predict_proba(X_test)[:, 1]
+        
+        # Optimize threshold using Dice scorer
+        dice_scorer = DiceScorer(smooth=smooth)
+        thresholds = np.linspace(0.1, 0.9, 20)
+        best_threshold = 0.5
+        best_score = 0
+        
+        for threshold in thresholds:
+            score = dice_scorer(y_test, y_proba, threshold)
+            if score > best_score:
+                best_score = score
+                best_threshold = threshold
+        
+        # Store optimal threshold
+        self.optimal_threshold = best_threshold
+        
+        return clf

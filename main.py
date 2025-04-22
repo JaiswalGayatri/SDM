@@ -14,6 +14,8 @@ import time
 import traceback
 import threading
 import queue
+from sklearn.model_selection import train_test_split
+from Modules.feature_sensitivity_analysis import FeatureSensitivityAnalyzer
 ee.Authenticate()
 ee.Initialize(project='sigma-bay-425614-a6')
 
@@ -242,305 +244,105 @@ def process_single_ecoregion(filename, polygon_dir, clf, Features_extractor, mod
     
     return avg_probability
 
+def perform_feature_sensitivity_analysis(model, X, feature_names):
+    """
+    Perform feature sensitivity analysis on the trained model.
+    
+    Args:
+        model: Trained model
+        X: Feature matrix
+        feature_names: List of feature names
+    """
+    print("\nPerforming feature sensitivity analysis...")
+    
+    # Define feature ranges (min, max) for each feature
+    feature_ranges = {
+        'annual_mean_temperature': (-185, 293),  # in Celsius
+        'mean_diurnal_range': (49, 163),         # in Celsius
+        'isothermality': (19, 69),               # percentage
+        'temperature_seasonality': (431, 11303),  # standard deviation
+        'max_temperature_warmest_month': (-51, 434),  # in Celsius
+        'min_temperature_coldest_month': (-369, 246),  # in Celsius
+        'temperature_annual_range': (74, 425),    # in Celsius
+        'mean_temperature_wettest_quarter': (-143, 339),  # in Celsius
+        'mean_temperature_driest_quarter': (-275, 309),   # in Celsius
+        'mean_temperature_warmest_quarter': (-97, 351),  # in Celsius
+        'mean_temperature_coldest_quarter': (-300, 275),  # in Celsius
+        'annual_precipitation': (51, 11401),      # in mm
+        'precipitation_wettest_month': (7, 2949),  # in mm
+        'precipitation_driest_month': (0, 81),     # in mm
+        'precipitation_seasonality': (27, 172),    # coefficient of variation
+        'precipitation_wettest_quarter': (18, 8019),  # in mm
+        'precipitation_driest_quarter': (0, 282),     # in mm
+        'precipitation_warmest_quarter': (10, 6090),  # in mm
+        'precipitation_coldest_quarter': (0, 5162),   # in mm
+        'aridity_index': (403, 65535),            # dimensionless
+        'topsoil_ph': (0, 8.3),                   # pH units
+        'subsoil_ph': (0, 8.3),                   # pH units
+        'topsoil_texture': (0, 3),                # texture class
+        'subsoil_texture': (0, 13),               # texture class
+        'elevation': (-54, 7548)                  # in meters
+    }
+    
+    # Initialize analyzer with feature ranges
+    analyzer = FeatureSensitivityAnalyzer(model, feature_names, feature_ranges)
+    
+    # Find a high probability point
+    try:
+        base_point, base_prob = analyzer.find_high_probability_point(X, threshold=0.9)
+        print(f"Found point with probability: {base_prob:.4f}")
+    except ValueError as e:
+        print(f"Warning: {e}. Using point with highest probability instead.")
+        probs = model.predict_proba(X)[:, 1]
+        best_idx = np.argmax(probs)
+        base_point = X[best_idx]
+        base_prob = probs[best_idx]
+        print(f"Using point with probability: {base_prob:.4f}")
+    
+    # Analyze all features
+    results = analyzer.analyze_all_features(base_point, X)
+    
+    # Plot sensitivity
+    analyzer.plot_feature_sensitivity(
+        results,
+        save_path='outputs/testing_SDM_out/feature_sensitivity.png'
+    )
+    
+    # Calculate and print feature importance
+    importance_scores = analyzer.get_feature_importance(results)
+    print("\nFeature Importance Scores:")
+    for feature, score in sorted(importance_scores.items(), key=lambda x: x[1], reverse=True):
+        print(f"{feature}: {score:.4f}")
 
 def main():
-  
-    # Presence_dataloader = presence_dataloader.Presence_dataloader()
-    Features_extractor = features_extractor.Feature_Extractor(ee)
-    # LULC_Filter = LULC_filter.LULC_Filter(ee)
-    # Pseudo_absence = pseudo_absence_generator.PseudoAbsences(ee)
+    print("Loading data...")
     modelss = models.Models()
-    # # generate_prob = Generate_Prob.Generate_Prob(ee)
+    features_extractor_obj = features_extractor.Feature_Extractor(ee)
+    X, y, coords, feature_cols, reliability_weights, bias_weights = modelss.load_data(
+        presence_path='data/testing_SDM/presence_points_Dalbergia_all_india.csv',
+        absence_path='data/testing_SDM/absence_points_dalbergia_all_india.csv'
+    )
     
+    # Combine weights
+    sample_weights = reliability_weights * bias_weights
     
-    # # raw_occurrences = Presence_dataloader.load_raw_presence_data()   #uncomment if want to use gbif api to generate presence points
+    print("\nTraining with Tversky Loss (RF)...")
+    clf_tversky = modelss.train_with_tversky_scoring(X, y, sample_weights, model_type='rf')
     
-    # # unique_presences = Presence_dataloader.load_unique_lon_lats()
-    # # presences_filtered_LULC = LULC_Filter.filter_by_lulc(unique_presences)
-    # # print(len(presences_filtered_LULC))
-    # # presence_data_with_features  = Features_extractor.add_features(presences_filtered_LULC)
-    # # presence_data_with_features.to_csv('data/presence.csv',index=False,mode='w')
-    # # presence_data_with_features = pd.read_csv('data/presence.csv')
-    # # pseudo_absence_points_with_features = Pseudo_absence.generate_pseudo_absences(presence_data_with_features)
-    print('training model_random forest')
-    X,y,_,_,sample_weights,bias_weights= modelss.load_data('data/testing_SDM/presence_points_dalbergia_all_india.csv','data/testing_SDM/absence_points_dalbergia_all_india.csv')
-    # print(X.shape)
-    # return
-    print(bias_weights)
-    clf, X_test, y_test, y_pred, y_proba = modelss.RandomForest(X,y,bias_weights)
-    # avg=0
-
-    metrics = {
-            'accuracy': accuracy_score(y_test, y_pred),
-            'confusion_matrix': confusion_matrix(y_test, y_pred),
-            'classification_report': classification_report(y_test, y_pred)
-        }
-        
-    # # Print the results
-
-    print(f"Accuracy: {metrics['accuracy']:.4f}")
-    print("\nConfusion Matrix:")
-    print(metrics['confusion_matrix'])
-    print("\nClassification Report:")
-    print(metrics['classification_report'])
-    print('done predicting')
-    test_model_on_all_ecoregions(clf,Features_extractor,modelss,output_file = 'outputs/testing_SDM_out/all_india_erythinia_avg_prob_RF.txt')
-
-    print('##############################')
-    # print('training model_ logistic regression')
-    # X,y,_,_,_ = modelss.load_data('data/testing_SDM/presence_points_ficus_all_india.csv','data/testing_SDM/absence_points_ficus_all_india.csv')
-    # # print(X.shape)
-    # # # return
-    # clf, X_test, y_test, y_pred, y_proba = modelss.logistic_regression_L2(X,y)
-    # avg=0
-    # metrics = {
-    #         'accuracy': accuracy_score(y_test, y_pred),
-    #         'confusion_matrix': confusion_matrix(y_test, y_pred),
-    #         'classification_report': classification_report(y_test, y_pred)
-    #     }
-        
-    # # # Print the results
-
-    # print(f"Accuracy: {metrics['accuracy']:.4f}")
-    # print("\nConfusion Matrix:")
-    # print(metrics['confusion_matrix'])
-    # print("\nClassification Report:")
-    # print(metrics['classification_report'])
-    # print('done predicting')
-    # test_model_on_all_ecoregions(clf,Features_extractor,modelss,output_file = 'outputs/testing_SDM_out/all_indiar_trained_matrix_ficus_avg_prob_LR.txt')
-
-    # print('##############################')
-    # print('training model weighted logistic regression')
-    # X,y,_,_,_ = modelss.load_data('data/testing_SDM/presence_points_ficus_all_india.csv','data/testing_SDM/absence_points_ficus_all_india.csv')
-    # # print(X.shape)
-    # # # return
-    # clf, X_test, y_test, y_pred, y_proba = modelss.train_and_evaluate_model_logistic_weighted(X,y)
-    # avg=0
-    # metrics = {
-    #         'accuracy': accuracy_score(y_test, y_pred),
-    #         'confusion_matrix': confusion_matrix(y_test, y_pred),
-    #         'classification_report': classification_report(y_test, y_pred)
-    #     }
-        
-    # # # Print the results
-
-    # print(f"Accuracy: {metrics['accuracy']:.4f}")
-    # print("\nConfusion Matrix:")
-    # print(metrics['confusion_matrix'])
-    # print("\nClassification Report:")
-    # print(metrics['classification_report'])
-    # print('done predicting')
-
-    # print('##############################')
-
-
-    # test_model_on_all_ecoregions(clf,Features_extractor,modelss,output_file = 'outputs/testing_SDM_out/all_india_trained_matrix_ficus_avg_prob_WLR.txt')
-   
+    # Perform feature sensitivity analysis
+    perform_feature_sensitivity_analysis(
+        clf_tversky,
+        X,
+        feature_cols
+    )
     
-
-    
-  
-
-   
-
-    # X_test,y_test,_,_,_ = modelss.load_data(presence_path='data/test_presence.csv',absence_path='data/test_absence.csv')
-    
-    # print('testing data loaded')
-
-    # y_pred = clf.predict(X_test)
-    # y_proba = clf.predict_proba(X_test)[:, 1]
-    # print('prediction stored')
-    
-    # avg=0
-    # for i, prob in enumerate(y_proba):
-    #     print(f"Sample {i}: {prob:.4f}")
-    #     avg+=prob 
-    # avg/=71
-    # print('avg prob is',avg)
-
-    # Print feature importances (Coefficients)
-   
-   
-    # print(pseudo_absence_points_with_features.head(5))
-    # pseudo_absence_points_with_features.to_csv('data/pseudo_absence.csv', index=False)
-
-    # feature_vectors_df = utility.find_representive_vectors_from_files('data/eco_regions_polygon', ee)
-    
-    # # Step 2: Calculate similarity matrices
-    # feature_vectors_df = pd.read_csv('data/representative_vectors_eco_region_wise.csv', index_col=0)
-    # cosine_similarity_matrix = utility.calculate_cosine_similarity_matrix(feature_vectors_df)
-    # euclidean_similarity_matrix = utility.calculate_euclidean_similarity_matrix(feature_vectors_df)
-    
-    # row_labels = feature_vectors_df.index.tolist()
-    
-    # # Print results
-    # print("Cosine Similarity Matrix:")
-    # cosine_df = pd.DataFrame(
-    #     cosine_similarity_matrix, 
-    #     index=row_labels, 
-    #     columns=row_labels
+    # print("\nGenerating predictions for all ecoregions...")
+    # test_model_on_all_ecoregions(
+    #     clf_tversky,
+    #     features_extractor_obj,
+    #     modelss,
+    #     output_file='outputs/testing_SDM_out/all_india_dalbergia_avg_prob_RF_TVERSKY.txt'
     # )
-    # print(cosine_df)
-    
-    # print("\nEuclidean Similarity Matrix:")
-    # euclidean_df = pd.DataFrame(
-    #     euclidean_similarity_matrix, 
-    #     index=row_labels, 
-    #     columns=row_labels
-    # )
-    # print(euclidean_df)
-    
-    # # Save matrices to text files
-    # utility.save_matrix_to_text(
-    #     cosine_similarity_matrix, 
-    #     'data/cosine_similarity_matrix.txt', 
-    #     row_labels
-    # )
-    # utility.save_matrix_to_text(
-    #     euclidean_similarity_matrix, 
-    #     'data/euclidean_similarity_matrix.txt', 
-    #     row_labels
-
-
-    # )
-
-    # Example usage:
-    # input_file = "data/eco_region_wise_genus.csv"  # Replace with your cleaned input file path
-    # utility.jaccard_similarity(input_file)
-    # with open('data/eco_regions_polygon/Terai_Duar_savanna_and_grasslands.wkt', 'r') as file:
-    #     polygon_wkt1 = file.read().strip()
-        # print(polygon_wkt)
-    
-    # # with open('data/eco_regions_polygon/South_Western_Ghats_moist_deciduous_forests.wkt', 'r') as file:
-    # #     polygon_wkt2 = file.read().strip()
-
-    # X_dissimilar = Features_extractor.add_features(utility.divide_polygon_to_grids(polygon_wkt1,grid_size=1,points_per_cell=20))
-    # pd.DataFrame.to_csv(X_dissimilar,'data/test_presence.csv',index=False)
-    # X_test,y_test,_,_,_ = modelss.load_data(presence_path='data/test_presence.csv',absence_path='data/test_absence.csv')
-
-    # # print('predicting for a dissimilar reogionnn')
-    # y_pred = clf.predict(X_test)
-    # y_proba = clf.predict_proba(X_test)[:, 1]
-
-    # print(f"Accuracy_RFC: {accuracy_score(y_test, y_pred):.4f}")
-    # print("\nConfusion Matrix:")
-    # print(confusion_matrix(y_test, y_pred))
-    # print("\nClassification Report:")
-    # print(classification_report(y_test, y_pred))
-
-
-    # print("\nProbabilities on the test set:")
-    # for i, prob in enumerate(y_proba):
-    #     print(f"Sample {i}: {prob:.4f}")
-
-
-    # X_dissimilar = Features_extractor.add_features(utility.divide_polygon_to_grids(polygon_wkt2,grid_size=12,points_per_cell=1))
-    # print(X_dissimilar)
-    # # print(X_similar)
-    # pd.DataFrame.to_csv(X_dissimilar,'data/test_presence.csv',index=False)
-
-# 
-
-
-
-
-    
-
-
-    # import os
-    # import geopandas as gpd
-    # import pandas as pd
-    # from shapely import wkt, Point
-
-    # print('Finding species count in each ecoregion...')
-
-    # # Define paths
-    # ecoregion_folder = "data/eco_regions_polygon"
-    # presence_file = "data/testing_SDM/presence_points_Dalbergia_all_india.csv"
-    # absence_file = "data/testing_SDM/absence_points_dalbergia_all_india.csv"
-
-    # # Load presence data and convert to GeoDataFrame
-    # presence_df = pd.read_csv(presence_file)
-    # presence_df["geometry"] = presence_df.apply(lambda row: Point(row["longitude"], row["latitude"]), axis=1)
-    # presence_gdf = gpd.GeoDataFrame(presence_df, geometry="geometry", crs="EPSG:4326")
-
-    # # Load absence data and convert to GeoDataFrame
-    # absence_df = pd.read_csv(absence_file)
-    # absence_df["geometry"] = absence_df.apply(lambda row: Point(row["longitude"], row["latitude"]), axis=1)
-    # absence_gdf = gpd.GeoDataFrame(absence_df, geometry="geometry", crs="EPSG:4326")
-
-    # # Combine presence and absence GeoDataFrames
-    # combined_gdf = pd.concat([presence_gdf, absence_gdf], ignore_index=True)
-    # print(len(combined_gdf))
-
-    # # Function to load ecoregion polygons from WKT files
-    # def load_ecoregions(folder):
-    #     ecoregions = []
-    #     for file in os.listdir(folder):
-    #         if file.endswith(".wkt"):  # Assuming WKT files
-    #             with open(os.path.join(folder, file), "r") as f:
-    #                 wkt_text = f.read().strip()
-    #                 poly = wkt.loads(wkt_text)
-    #                 ecoregions.append({"ecoregion": file.replace(".wkt", ""), "geometry": poly})
-    #     return gpd.GeoDataFrame(ecoregions, geometry="geometry", crs="EPSG:4326")
-
-    # # Load eco-region polygons
-    # ecoregion_gdf = load_ecoregions(ecoregion_folder)
-
-    # # Spatial join: assign each combined occurrence (presence and absence) to an eco-region
-    # # Using predicate "within" to check if the point falls inside the polygon
-    # combined_with_ecoregion = gpd.sjoin(combined_gdf, ecoregion_gdf, how="left", predicate="within")
-
-    # # Count occurrences in each eco-region
-    # ecoregion_counts = combined_with_ecoregion.groupby("ecoregion").size().reset_index(name="count")
-
-    # # Save results to CSV
-    # output_file = "outputs/testing_SDM_out/species_ecoregion_count_1.csv"
-    # ecoregion_counts.to_csv(output_file, index=False)
-    # print('Done. Species occurrence counts saved to:', output_file)
-
-
-# print(ecoregion_counts)  # Print output
-
-# def compute_concentration_index(csv_file):
-#     """
-#     Computes the concentration index (Ci) for a species based on its occurrence distribution across ecoregions.
-
-#     Args:
-#         csv_file (str): Path to the CSV file containing species occurrence counts per ecoregion.
-
-#     Returns:
-#         float: The concentration index (Ci).
-#     """
-#     # Load species occurrence counts
-#     df = pd.read_csv(csv_file)
-
-#     # Ensure the CSV has correct columns
-#     if "count" not in df.columns:
-#         raise ValueError("CSV file must contain a 'count' column with species occurrences.")
-
-#     # Total occurrences of the species
-#     total_occurrences = df["count"].sum()
-
-#     # Compute probability pij for each ecoregion
-#     df["pij"] = df["count"] / total_occurrences
-
-#     # Compute concentration index (Ci)
-#     df["pij_log_pij"] = df["pij"] * np.log(df["pij"])
-#     Ci = -df["pij_log_pij"].sum()
-
-#     return Ci
-
-# # Example usage
-# csv_file = "outputs/species_ecoregion_counts.csv"
-# Ci = compute_concentration_index(csv_file)
-# print(f"Concentration Index (Ci): {Ci:.4f}")
-
-
-    
-   
-
-
 
 if __name__ == "__main__":
     main()
