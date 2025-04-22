@@ -8,6 +8,12 @@ from contextlib import contextmanager
 from Modules import presence_dataloader, features_extractor, LULC_filter, pseudo_absence_generator, models, Generate_Prob, utility
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 from scipy.stats import spearmanr
+import concurrent.futures
+from functools import partial
+import time
+import traceback
+import threading
+import queue
 ee.Authenticate()
 ee.Initialize(project='sigma-bay-425614-a6')
 
@@ -24,84 +30,246 @@ def timeout(time):
     finally:
         signal.alarm(0)
 
-def test_model_on_all_ecoregions(clf, Features_extractor, modelss,output_file='data/avg_prob.txt'):
+# def test_model_on_all_ecoregions(clf, Features_extractor, modelss, output_file='data/avg_prob.txt'):
+#     polygon_dir = 'data/eco_regions_polygon'
+
+#     # Write the header for the output file if the file doesn't exist
+#     if not os.path.exists(output_file):
+#         with open(output_file, 'w') as out_file:
+#             out_file.write('Ecoregion,Average_Probability\n')
+
+#     cnt = 0
+
+#     for filename in os.listdir(polygon_dir):
+#         print(f'Starting for ecoregion {cnt + 1}')
+#         if filename.endswith('.wkt'):  # Process only .wkt files
+#             ecoregion_name = os.path.splitext(filename)[0]  # Get ecoregion name without extension
+#             polygon_path = os.path.join(polygon_dir, filename)
+
+#             try:
+#                 with timeout(15):  # Set a 2-minute timeout
+#                     # Read the polygon WKT
+#                     with open(polygon_path, 'r') as file:
+#                         polygon_wkt = file.read().strip()
+
+#                     # Generate test data for the current ecoregion
+#                     X_dissimilar = Features_extractor.add_features(
+#                         utility.divide_polygon_to_grids(polygon_wkt, grid_size=1, points_per_cell=20)
+#                     )
+#                     test_presence_path = 'data/test_presence.csv'
+#                     pd.DataFrame(X_dissimilar).to_csv(test_presence_path, index=False)
+
+#                     X_test, y_test, _, _, _ = modelss.load_data(
+#                         presence_path=test_presence_path,
+#                         absence_path='data/test_absence.csv'
+#                     )
+
+#                     # Remove NaN and infinite values from test set
+#                     X_test = np.array(X_test, dtype=float)
+#                     mask = np.isfinite(X_test).all(axis=1)
+#                     X_test = X_test[mask]
+
+#                     if X_test.shape[0] == 0:  # If no valid samples remain
+#                         print(f'No valid samples for {ecoregion_name}. Setting average probability to 0.')
+#                         avg_probability = 0
+#                     else:
+#                         # Make predictions
+#                         y_proba = clf.predict_proba(X_test)[:, 1]
+
+#                         # Calculate the average probability
+#                         avg_probability = y_proba.mean()
+#             except TimeoutError:
+#                 print(f'Timeout for {ecoregion_name}. Setting average probability to 0.')
+#                 avg_probability = 0
+
+#             # Write the result to the output file
+#             with open(output_file, 'a') as out_file:
+#                 out_file.write(f'{ecoregion_name},{avg_probability}\n')
+#             cnt += 1
+#             print(f'Done for ecoregion {cnt}')
+
+#     print(f'Average probabilities saved to {output_file}')
+
+
+
+def test_model_on_all_ecoregions(clf, Features_extractor, modelss, output_file='data/avg_prob.txt', num_workers=16):
     polygon_dir = 'data/eco_regions_polygon'
-    # output_file = 'outputs/testing_SDM_out/all_india_trained_matrix_Dalbergia_avg_prob.txt'
-
-    # Write the header for the output file
-    with open(output_file, 'w') as out_file:
-        out_file.write('Ecoregion,Average_Probability\n')
-
-    write_header = not os.path.exists(output_file)
-    cnt = 0
-
-    for filename in os.listdir(polygon_dir):
-        print(f'Starting for ecoregion {cnt + 1}')
-        if filename.endswith('.wkt'):  # Process only .wkt files
-            ecoregion_name = os.path.splitext(filename)[0]  # Get ecoregion name without extension
-            polygon_path = os.path.join(polygon_dir, filename)
-
+    
+    # Write the header for the output file if the file doesn't exist
+    if not os.path.exists(output_file):
+        with open(output_file, 'w') as out_file:
+            out_file.write('Ecoregion,Average_Probability\n')
+    
+    # Get all .wkt files
+    wkt_files = [f for f in os.listdir(polygon_dir) if f.endswith('.wkt')]
+    total_files = len(wkt_files)
+    
+    print(f'Starting processing of {total_files} ecoregions with {num_workers} workers')
+    
+    # Create a queue of files to process
+    file_queue = queue.Queue()
+    for filename in wkt_files:
+        file_queue.put(filename)
+    
+    # Create a lock for file writing
+    file_lock = threading.Lock()
+    
+    # Create a shared counter for completed files
+    completed = [0]
+    
+    def worker():
+        while not file_queue.empty():
             try:
-                with timeout(120):  # Set a 2-minute timeout
-                    # Read the polygon WKT
-                    with open(polygon_path, 'r') as file:
-                        polygon_wkt = file.read().strip()
-
-                    # Generate test data for the current ecoregion
-                    X_dissimilar = Features_extractor.add_features(
-                        utility.divide_polygon_to_grids(polygon_wkt, grid_size=1, points_per_cell=20)
+                # Get a file from the queue with a timeout
+                try:
+                    filename = file_queue.get(timeout=1)
+                except queue.Empty:
+                    break
+                
+                # Process the file
+                ecoregion_name = os.path.splitext(filename)[0]
+                try:
+                    avg_probability = process_single_ecoregion(
+                        filename, polygon_dir, clf, Features_extractor, modelss
                     )
-                    test_presence_path = 'data/test_presence.csv'
-                    pd.DataFrame(X_dissimilar).to_csv(test_presence_path, index=False)
-
-                    X_test, y_test, _, _, _ = modelss.load_data(
-                        presence_path=test_presence_path,
-                        absence_path='data/test_absence.csv'
-                    )
-
-                    # Make predictions
-                    y_proba = clf.predict_proba(X_test)[:, 1]
-
-                    # Calculate the average probability
-                    avg_probability = y_proba.mean()
-            except TimeoutError:
-                print(f'Timeout for {ecoregion_name}. Setting average probability to 0.')
-                avg_probability = 0
-
-            # Write the result to the output file
+                except Exception as e:
+                    print(f'Error processing {ecoregion_name}: {str(e)}')
+                    avg_probability = 0.0
+                
+                # Write the result to the output file
+                with file_lock:
+                    with open(output_file, 'a') as out_file:
+                        out_file.write(f'{ecoregion_name},{avg_probability}\n')
+                    completed[0] += 1
+                    print(f'Completed {completed[0]}/{total_files}: {ecoregion_name}')
+                
+                # Mark the task as done
+                file_queue.task_done()
+            except Exception as e:
+                print(f'Worker error: {str(e)}')
+    
+    # Start worker threads
+    threads = []
+    for _ in range(num_workers):
+        t = threading.Thread(target=worker)
+        t.daemon = True
+        t.start()
+        threads.append(t)
+    
+    # Wait for all files to be processed or timeout
+    timeout = 60 * 60  # 1 hour timeout
+    start_time = time.time()
+    while completed[0] < total_files and time.time() - start_time < timeout:
+        time.sleep(1)
+    
+    # Check if all files were processed
+    if completed[0] < total_files:
+        print(f'WARNING: Only {completed[0]}/{total_files} files were processed before timeout')
+        
+        # Process any remaining files sequentially
+        remaining_files = []
+        while not file_queue.empty():
+            try:
+                remaining_files.append(file_queue.get(timeout=1))
+            except queue.Empty:
+                break
+        
+        print(f'Processing remaining {len(remaining_files)} files sequentially')
+        for filename in remaining_files:
+            ecoregion_name = os.path.splitext(filename)[0]
+            try:
+                avg_probability = process_single_ecoregion(
+                    filename, polygon_dir, clf, Features_extractor, modelss
+                )
+            except Exception as e:
+                print(f'Error processing {ecoregion_name}: {str(e)}')
+                avg_probability = 0.0
+            
             with open(output_file, 'a') as out_file:
                 out_file.write(f'{ecoregion_name},{avg_probability}\n')
-            cnt += 1
-            print(f'Done for ecoregion {cnt}')
+            completed[0] += 1
+            print(f'Completed {completed[0]}/{total_files}: {ecoregion_name}')
+    
+    print(f'All ecoregions processed. Average probabilities saved to {output_file}')
 
-    print(f'Average probabilities saved to {output_file}')
+def process_single_ecoregion(filename, polygon_dir, clf, Features_extractor, modelss):
+    """Process a single ecoregion file and return the average probability."""
+    ecoregion_name = os.path.splitext(filename)[0]
+    polygon_path = os.path.join(polygon_dir, filename)
+    
+    # Read the polygon WKT
+    with open(polygon_path, 'r') as file:
+        polygon_wkt = file.read().strip()
+    
+    # Generate test data for the current ecoregion
+    X_dissimilar = Features_extractor.add_features(
+        utility.divide_polygon_to_grids(polygon_wkt, grid_size=1, points_per_cell=20)
+    )
+    
+    # Create a unique temporary file for this thread
+    thread_id = threading.get_ident()
+    timestamp = int(time.time() * 1000)
+    temp_file = f'data/temp_presence_{thread_id}_{timestamp}.csv'
+    pd.DataFrame(X_dissimilar).to_csv(temp_file, index=False)
+    
+    try:
+        X_test, y_test, _, _, _,bias_weights = modelss.load_data(
+            presence_path=temp_file,
+            absence_path='data/test_absence.csv'
+        )
+        
+        # Remove NaN and infinite values from test set
+        X_test = np.array(X_test, dtype=float)
+        mask = np.isfinite(X_test).all(axis=1)
+        X_test = X_test[mask]
+        
+        if X_test.shape[0] == 0:  # If no valid samples remain
+            print(f'No valid samples for {ecoregion_name}. Setting average probability to 0.')
+            avg_probability = 0
+        else:
+            # Make predictions
+            y_proba = clf.predict_proba(X_test)[:, 1]
+            
+            # Calculate the average probability
+            avg_probability = y_proba.mean()
+    finally:
+        # Clean up temporary file
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+    
+    return avg_probability
 
 
 def main():
   
-    Presence_dataloader = presence_dataloader.Presence_dataloader()
+    # Presence_dataloader = presence_dataloader.Presence_dataloader()
     Features_extractor = features_extractor.Feature_Extractor(ee)
-    LULC_Filter = LULC_filter.LULC_Filter(ee)
-    Pseudo_absence = pseudo_absence_generator.PseudoAbsences(ee)
+    # LULC_Filter = LULC_filter.LULC_Filter(ee)
+    # Pseudo_absence = pseudo_absence_generator.PseudoAbsences(ee)
     modelss = models.Models()
-    # generate_prob = Generate_Prob.Generate_Prob(ee)
+    # # generate_prob = Generate_Prob.Generate_Prob(ee)
     
     
-    # raw_occurrences = Presence_dataloader.load_raw_presence_data()   #uncomment if want to use gbif api to generate presence points
+    # # raw_occurrences = Presence_dataloader.load_raw_presence_data()   #uncomment if want to use gbif api to generate presence points
     
-    # unique_presences = Presence_dataloader.load_unique_lon_lats()
-    # presences_filtered_LULC = LULC_Filter.filter_by_lulc(unique_presences)
-    # print(len(presences_filtered_LULC))
-    # presence_data_with_features  = Features_extractor.add_features(presences_filtered_LULC)
-    # presence_data_with_features.to_csv('data/presence.csv',index=False,mode='w')
-    # presence_data_with_features = pd.read_csv('data/presence.csv')
-    # pseudo_absence_points_with_features = Pseudo_absence.generate_pseudo_absences(presence_data_with_features)
+    # # unique_presences = Presence_dataloader.load_unique_lon_lats()
+    # # presences_filtered_LULC = LULC_Filter.filter_by_lulc(unique_presences)
+    # # print(len(presences_filtered_LULC))
+    # # presence_data_with_features  = Features_extractor.add_features(presences_filtered_LULC)
+    # # presence_data_with_features.to_csv('data/presence.csv',index=False,mode='w')
+    # # presence_data_with_features = pd.read_csv('data/presence.csv')
+    # # pseudo_absence_points_with_features = Pseudo_absence.generate_pseudo_absences(presence_data_with_features)
     print('training model_random forest')
-    X,y,_,_,_ = modelss.load_data('data/testing_SDM/presence_points_Dalbergia_all_india.csv','data/testing_SDM/absence_points_dalbergia_all_india.csv')
+    X,y,_,_,sample_weights,bias_weights= modelss.load_data('data/testing_SDM/presence_points_dalbergia_all_india.csv','data/testing_SDM/absence_points_dalbergia_all_india.csv')
     # print(X.shape)
-    # # return
-    clf, X_test, y_test, y_pred, y_proba = modelss.RandomForest(X,y)
-    avg=0
+    # return
+    print(bias_weights)
+    clf, X_test, y_test, y_pred, y_proba = modelss.RandomForest(X,y,bias_weights)
+    # avg=0
+
     metrics = {
             'accuracy': accuracy_score(y_test, y_pred),
             'confusion_matrix': confusion_matrix(y_test, y_pred),
@@ -116,10 +284,11 @@ def main():
     print("\nClassification Report:")
     print(metrics['classification_report'])
     print('done predicting')
+    test_model_on_all_ecoregions(clf,Features_extractor,modelss,output_file = 'outputs/testing_SDM_out/all_india_erythinia_avg_prob_RF.txt')
 
     print('##############################')
     # print('training model_ logistic regression')
-    # X,y,_,_,_ = modelss.load_data('data/testing_SDM/presence_points_Dalbergia_all_india.csv','data/testing_SDM/absence_points_dalbergia_all_india.csv')
+    # X,y,_,_,_ = modelss.load_data('data/testing_SDM/presence_points_ficus_all_india.csv','data/testing_SDM/absence_points_ficus_all_india.csv')
     # # print(X.shape)
     # # # return
     # clf, X_test, y_test, y_pred, y_proba = modelss.logistic_regression_L2(X,y)
@@ -138,10 +307,11 @@ def main():
     # print("\nClassification Report:")
     # print(metrics['classification_report'])
     # print('done predicting')
+    # test_model_on_all_ecoregions(clf,Features_extractor,modelss,output_file = 'outputs/testing_SDM_out/all_indiar_trained_matrix_ficus_avg_prob_LR.txt')
 
     # print('##############################')
     # print('training model weighted logistic regression')
-    # X,y,_,_,_ = modelss.load_data('data/testing_SDM/presence_points_Dalbergia_all_india.csv','data/testing_SDM/absence_points_dalbergia_all_india.csv')
+    # X,y,_,_,_ = modelss.load_data('data/testing_SDM/presence_points_ficus_all_india.csv','data/testing_SDM/absence_points_ficus_all_india.csv')
     # # print(X.shape)
     # # # return
     # clf, X_test, y_test, y_pred, y_proba = modelss.train_and_evaluate_model_logistic_weighted(X,y)
@@ -164,7 +334,7 @@ def main():
     # print('##############################')
 
 
-
+    # test_model_on_all_ecoregions(clf,Features_extractor,modelss,output_file = 'outputs/testing_SDM_out/all_india_trained_matrix_ficus_avg_prob_WLR.txt')
    
     
 
@@ -270,7 +440,7 @@ def main():
     # pd.DataFrame.to_csv(X_dissimilar,'data/test_presence.csv',index=False)
 
 # 
-    test_model_on_all_ecoregions(clf,Features_extractor,modelss,output_file = 'outputs/testing_SDM_out/all_india_trained_matrix_Dalbergia_avg_prob_random_forest.txt')
+
 
 
 
@@ -281,16 +451,27 @@ def main():
     # import geopandas as gpd
     # import pandas as pd
     # from shapely import wkt, Point
-    # print('finding species count in each ecoregion')
-    # # Path to folder containing WKT polygon files
+
+    # print('Finding species count in each ecoregion...')
+
+    # # Define paths
     # ecoregion_folder = "data/eco_regions_polygon"
+    # presence_file = "data/testing_SDM/presence_points_Dalbergia_all_india.csv"
+    # absence_file = "data/testing_SDM/absence_points_dalbergia_all_india.csv"
 
-    # # Load species occurrence data (CSV with latitude & longitude)
-    # species_df = pd.read_csv("data/testing_SDM/presence_points_erythinia_all_india.csv")
+    # # Load presence data and convert to GeoDataFrame
+    # presence_df = pd.read_csv(presence_file)
+    # presence_df["geometry"] = presence_df.apply(lambda row: Point(row["longitude"], row["latitude"]), axis=1)
+    # presence_gdf = gpd.GeoDataFrame(presence_df, geometry="geometry", crs="EPSG:4326")
 
-    # # Convert species points into a GeoDataFrame
-    # species_df["geometry"] = species_df.apply(lambda row: Point(row["longitude"], row["latitude"]), axis=1)
-    # species_gdf = gpd.GeoDataFrame(species_df, geometry="geometry", crs="EPSG:4326")
+    # # Load absence data and convert to GeoDataFrame
+    # absence_df = pd.read_csv(absence_file)
+    # absence_df["geometry"] = absence_df.apply(lambda row: Point(row["longitude"], row["latitude"]), axis=1)
+    # absence_gdf = gpd.GeoDataFrame(absence_df, geometry="geometry", crs="EPSG:4326")
+
+    # # Combine presence and absence GeoDataFrames
+    # combined_gdf = pd.concat([presence_gdf, absence_gdf], ignore_index=True)
+    # print(len(combined_gdf))
 
     # # Function to load ecoregion polygons from WKT files
     # def load_ecoregions(folder):
@@ -303,18 +484,21 @@ def main():
     #                 ecoregions.append({"ecoregion": file.replace(".wkt", ""), "geometry": poly})
     #     return gpd.GeoDataFrame(ecoregions, geometry="geometry", crs="EPSG:4326")
 
-    # # Load all ecoregions into a GeoDataFrame
+    # # Load eco-region polygons
     # ecoregion_gdf = load_ecoregions(ecoregion_folder)
 
-    # # Spatial join: Assign each species occurrence to an ecoregion
-    # species_with_ecoregions = gpd.sjoin(species_gdf, ecoregion_gdf, how="left", predicate="within")
+    # # Spatial join: assign each combined occurrence (presence and absence) to an eco-region
+    # # Using predicate "within" to check if the point falls inside the polygon
+    # combined_with_ecoregion = gpd.sjoin(combined_gdf, ecoregion_gdf, how="left", predicate="within")
 
-    # # Count occurrences in each ecoregion
-    # ecoregion_counts = species_with_ecoregions.groupby("ecoregion").size().reset_index(name="count")
+    # # Count occurrences in each eco-region
+    # ecoregion_counts = combined_with_ecoregion.groupby("ecoregion").size().reset_index(name="count")
 
-    # # Save results
-    # ecoregion_counts.to_csv("outputs/testing_SDM_out/species_ecoregion_counts_erythinia.csv", index=False)
-    # print('done')
+    # # Save results to CSV
+    # output_file = "outputs/testing_SDM_out/species_ecoregion_count_1.csv"
+    # ecoregion_counts.to_csv(output_file, index=False)
+    # print('Done. Species occurrence counts saved to:', output_file)
+
 
 # print(ecoregion_counts)  # Print output
 
