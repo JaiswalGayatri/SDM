@@ -97,7 +97,7 @@ class PseudoAbsences:
         with tqdm(total=num_points, desc="Generating points") as pbar:
             while len(global_df) < num_points:
                 # Generate a batch of random points
-                batch_points = self.generate_batch_points(minx, miny, maxx, maxy, batch_size)
+                batch_points = self.generate_batch_points(minx, miny, maxx, maxy, batch_size)  #to do make sure to sample points that are atleast say 30m away from presence points.
                 total_attempts += batch_size
 
                 # Process batch in parallel
