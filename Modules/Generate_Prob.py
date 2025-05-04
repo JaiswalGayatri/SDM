@@ -42,6 +42,8 @@ class Generate_Prob:
         resolution = 0.25  # n
         
         # Calculate grid dimensions
+
+        #todo: formalise this resolution parameter.
         width = int((bounds[2] - bounds[0]) / resolution)
         height = int((bounds[3] - bounds[1]) / resolution)
         
