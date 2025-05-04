@@ -93,7 +93,7 @@ def timeout(time):
 #     print(f'Average probabilities saved to {output_file}')
 
 
-
+#add issues on why some eco-regions were taking too long to find avg prob on.
 def test_model_on_all_ecoregions(clf, Features_extractor, modelss, output_file='data/avg_prob.txt', num_workers=16):
     polygon_dir = 'data/eco_regions_polygon'
     
