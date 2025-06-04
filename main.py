@@ -19,6 +19,15 @@ from Modules.feature_sensitivity_analysis import FeatureSensitivityAnalyzer
 ee.Authenticate()
 ee.Initialize(project='sigma-bay-425614-a6')
 
+
+
+
+
+# The following code sets up the environment and imports necessary modules for the project.
+# It authenticates and initializes the Google Earth Engine API.
+# The context manager 'timeout' is defined below to handle timeouts for code blocks.
+# There are also commented-out functions for testing models on ecoregions, which can be enabled as needed.
+
 @contextmanager
 def timeout(time):
     """Raise TimeoutError if the block takes longer than 'time' seconds."""
@@ -94,6 +103,22 @@ def timeout(time):
 
 
 #add issues on why some eco-regions were taking too long to find avg prob on.
+
+
+# Function to process ecoregions and calculate their average probability
+# Parameters:
+#   - filename: Name of the WKT file containing the ecoregion polygons
+#   - polygon_dir: Directory containing the WKT files
+#   - clf: Trained classifier model
+#   - Features_extractor: Object for extracting features from data
+#   - modelss: Object containing data loading utilities
+# Returns:
+#   - float: Average probability of presence for the ecoregion
+#   - Returns 0.0 if processing fails or times out
+
+
+
+
 def test_model_on_all_ecoregions(clf, Features_extractor, modelss, output_file='data/avg_prob.txt', num_workers=16):
     polygon_dir = 'data/eco_regions_polygon'
     
@@ -194,6 +219,20 @@ def test_model_on_all_ecoregions(clf, Features_extractor, modelss, output_file='
     
     print(f'All ecoregions processed. Average probabilities saved to {output_file}')
 
+
+
+
+# Function to process a single ecoregion file and calculate average probability
+# Parameters:
+#   filename: Name of the ecoregion file
+#   polygon_dir: Directory containing polygon files
+#   clf: Classifier model
+#   Features_extractor: Feature extraction utility
+#   modelss: Model utilities for data loading
+# Returns:
+#   avg_probability: Average probability score for the ecoregion
+
+
 def process_single_ecoregion(filename, polygon_dir, clf, Features_extractor, modelss):
     """Process a single ecoregion file and return the average probability."""
     ecoregion_name = os.path.splitext(filename)[0]
@@ -243,6 +282,12 @@ def process_single_ecoregion(filename, polygon_dir, clf, Features_extractor, mod
                 pass
     
     return avg_probability
+
+
+
+
+
+
 
 def perform_feature_sensitivity_analysis(model, X, feature_names):
     """
