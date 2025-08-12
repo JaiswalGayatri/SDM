@@ -902,7 +902,7 @@ class Models:
             print(f"\n2. Extracting environmental features for presence points...")
             try:
                 import ee
-                ee.Initialize()
+                # ee.Initialize()  # Commented out to avoid authentication issues when importing module
             except:
                 print("   Warning: Earth Engine not initialized. Please initialize EE first.")
                 return results
@@ -3396,7 +3396,7 @@ if __name__ == "__main__":
     # Initialize Earth Engine (required for feature extraction)
     import ee
     
-    ee.Initialize()
+    # ee.Initialize()  # Commented out to avoid authentication issues when importing module
     
 
     # Only run feature importance analysis for all species
